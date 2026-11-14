@@ -1,0 +1,59 @@
+name: Build APK from ZIP
+
+on:
+  push:
+    paths:
+      - '*.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          ZIP=$(ls -t *.zip | head -n 1)
+          echo "Using $ZIP"
+          mkdir -p work
+          unzip -q "$ZIP" -d work
+          GR=$(find work -name gradlew -not -path '*/node_modules/*' | head -n 1)
+          DIR=$(dirname "$GR")
+          echo "PROJECT_DIR=$DIR" >> $GITHUB_ENV
+          chmod +x "$GR"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept Android licenses (SDK already preinstalled)
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          APK=$(find "$PROJECT_DIR/app/build/outputs/apk/release" -name '*.apk' | head -n 1)
+          cp "$APK" Lakshya.apk
+
+      - name: Publish APK (direct download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Lakshya APK #${{ github.run_number }}
+          files: Lakshya.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lakshya-apk
+          path: Lakshya.apk
